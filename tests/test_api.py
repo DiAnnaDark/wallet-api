@@ -1,77 +1,80 @@
-from concurrent.futures import ThreadPoolExecutor
+
+import asyncio
 from uuid import uuid4
 
-import httpx
+import pytest
 
-BASE_URL = "http://127.0.0.1:8001"
+pytestmark = pytest.mark.anyio
 
 
 def wallet_url(wallet_id):
-    return f"{BASE_URL}/api/v1/wallets/{wallet_id}"
+    return f"/api/v1/wallets/{wallet_id}"
 
 
-def operation(wallet_id, kind, amount):
-    return httpx.post(
+async def operation(client, wallet_id, kind, amount):
+    return await client.post(
         wallet_url(wallet_id) + "/operation",
         json={"operation_type": kind, "amount": amount},
         timeout=20,
     )
 
 
-def test_wallet_operations():
+async def test_wallet_operations(client):
     wallet_id = str(uuid4())
 
-    response = httpx.get(wallet_url(wallet_id))
+    response = await client.get(wallet_url(wallet_id))
     assert response.status_code == 404
 
-    response = operation(wallet_id, "DEPOSIT", 1000)
+    response = await operation(client, wallet_id, "DEPOSIT", 1000)
     assert response.status_code == 200
     assert response.json()["balance"] == "1000.00"
 
-    response = operation(wallet_id, "WITHDRAW", 300)
+    response = await operation(client, wallet_id, "WITHDRAW", 300)
     assert response.status_code == 200
     assert response.json()["balance"] == "700.00"
 
-    response = httpx.get(wallet_url(wallet_id))
+    response = await client.get(wallet_url(wallet_id))
     assert response.json()["balance"] == "700.00"
 
 
-def test_insufficient_funds():
+async def test_insufficient_funds(client):
     wallet_id = str(uuid4())
 
-    operation(wallet_id, "DEPOSIT", 100)
+    response = await operation(client, wallet_id, "DEPOSIT", 100)
+    assert response.status_code == 200
 
-    response = operation(wallet_id, "WITHDRAW", 200)
+    response = await operation(client, wallet_id, "WITHDRAW", 200)
     assert response.status_code == 409
 
-    response = httpx.get(wallet_url(wallet_id))
+    response = await client.get(wallet_url(wallet_id))
     assert response.json()["balance"] == "100.00"
 
 
-def test_validation():
+async def test_validation(client):
     wallet_id = str(uuid4())
 
-    response = operation(wallet_id, "DEPOSIT", -100)
+    response = await operation(client, wallet_id, "DEPOSIT", -100)
     assert response.status_code == 422
 
-    response = operation(wallet_id, "TRANSFER", 100)
+    response = await operation(client, wallet_id, "TRANSFER", 100)
     assert response.status_code == 422
 
-    response = httpx.get(wallet_url("invalid-uuid"))
+    response = await client.get(wallet_url("invalid-uuid"))
     assert response.status_code == 422
 
 
-def test_parallel_withdrawals():
+async def test_parallel_withdrawals(client):
     wallet_id = str(uuid4())
-    operation(wallet_id, "DEPOSIT", 100)
 
-    with ThreadPoolExecutor(max_workers=20) as executor:
-        responses = list(
-            executor.map(
-                lambda _: operation(wallet_id, "WITHDRAW", 10),
-                range(20),
-            )
+    response = await operation(client, wallet_id, "DEPOSIT", 100)
+    assert response.status_code == 200
+
+    responses = await asyncio.gather(
+        *(
+            operation(client, wallet_id, "WITHDRAW", 10)
+            for _ in range(20)
         )
+    )
 
     success = sum(r.status_code == 200 for r in responses)
     conflicts = sum(r.status_code == 409 for r in responses)
@@ -79,5 +82,5 @@ def test_parallel_withdrawals():
     assert success == 10
     assert conflicts == 10
 
-    response = httpx.get(wallet_url(wallet_id))
+    response = await client.get(wallet_url(wallet_id))
     assert response.json()["balance"] == "0.00"
