@@ -21,6 +21,9 @@ async def deposit(
     amount: Decimal,
     max_balance: Decimal,
 ) -> Decimal | None:
+    if amount > max_balance:
+        return None
+
     return await conn.fetchval(
         """
         INSERT INTO wallets (id, balance)

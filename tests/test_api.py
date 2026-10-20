@@ -1,8 +1,12 @@
-
 import asyncio
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
+
+from app import app
+from wallets import repository
+from wallets.service import MAX_BALANCE
 
 pytestmark = pytest.mark.anyio
 
@@ -84,3 +88,39 @@ async def test_parallel_withdrawals(client):
 
     response = await client.get(wallet_url(wallet_id))
     assert response.json()["balance"] == "0.00"
+
+async def test_repository_rejects_oversized_initial_deposit(client):
+    wallet_id = uuid4()
+
+    async with app.state.db.acquire() as conn:
+        balance = await repository.deposit(
+            conn,
+            wallet_id,
+            Decimal("10000000000000000.00"),
+            MAX_BALANCE,
+        )
+
+    assert balance is None
+
+async def test_repository_rejects_overflow_on_existing_wallet(client):
+    wallet_id = uuid4()
+
+    async with app.state.db.acquire() as conn:
+        balance = await repository.deposit(
+            conn,
+            wallet_id,
+            MAX_BALANCE,
+            MAX_BALANCE,
+        )
+        assert balance == MAX_BALANCE
+
+        rejected = await repository.deposit(
+            conn,
+            wallet_id,
+            Decimal("0.01"),
+            MAX_BALANCE,
+        )
+        assert rejected is None
+
+        balance = await repository.get_balance(conn, wallet_id)
+        assert balance == MAX_BALANCE
