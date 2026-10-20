@@ -5,7 +5,7 @@ from pathlib import Path
 import asyncpg
 
 
-async def migrate():
+async def migrate(migrations_dir: Path | None = None):
     conn = await asyncpg.connect(
         host=os.getenv("POSTGRES_HOST", "db"),
         port=int(os.getenv("POSTGRES_PORT", "5432")),
@@ -24,7 +24,11 @@ async def migrate():
                 )
             """)
 
-            folder = Path(__file__).parent / "migrations"
+            folder = (
+                migrations_dir
+                if migrations_dir is not None
+                else Path(__file__).parent / "migrations"
+            )
 
             for file in sorted(folder.glob("*.sql")):
                 applied = await conn.fetchval(
