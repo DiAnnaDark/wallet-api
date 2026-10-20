@@ -4,6 +4,7 @@ REST API для пополнения кошельков, списания ден
 
 Python 3.12, FastAPI, PostgreSQL, asyncpg
 
+
 Запуск
 
 Создать .env по примеру .env.example и указать пароль PostgreSQL
@@ -13,6 +14,7 @@ docker compose up --build -d
 Миграции выполняются автоматически при запуске
 
 Документация API доступна по адресу http://localhost:8001/docs
+
 
 Запросы
 
@@ -36,13 +38,22 @@ GET /api/v1/wallets/{wallet_uuid}
 
 Изменение баланса выполняется атомарным SQL-запросом для корректной работы параллельных запросов
 
+
 Тесты
 
-При запущенном приложении выполнить
+Тесты выполняются в отдельном Docker-окружении с тестовой PostgreSQL.
+Запуск основного приложения для проверки не требуется.
 
-python -m pip install -r requirements.txt
+docker compose -f compose.test.yaml run --build --rm tests
 
-python -m pytest tests/ -v
+Тестовая база создаётся автоматически. Перед каждым тестом таблица
+кошельков очищается. Для выполнения тестов используются pytest,
+httpx.AsyncClient и ASGITransport.
+
+После тестирования:
+
+docker compose -f compose.test.yaml down
+
 
 Остановка
 
